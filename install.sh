@@ -87,6 +87,7 @@ fi
 : "${INSTALL_TAILSCALE:=0}"
 : "${START_OLLAMA_SERVER:=1}"
 : "${OLLAMA_MODEL:=}"
+: "${OLLAMA_MODELS:=}"
 
 export OLLAMA_HOST
 export OLLAMA_CONTEXT_LENGTH
@@ -180,9 +181,22 @@ if [ "$START_OLLAMA_SERVER" = "1" ]; then
   fi
 fi
 
+pull_models="$OLLAMA_MODELS"
 if [ -n "$OLLAMA_MODEL" ]; then
-  log "Pulling model: $OLLAMA_MODEL"
-  ollama pull "$OLLAMA_MODEL"
+  if [ -n "$pull_models" ]; then
+    pull_models="$pull_models $OLLAMA_MODEL"
+  else
+    pull_models="$OLLAMA_MODEL"
+  fi
+fi
+
+if [ -n "$pull_models" ]; then
+  normalized_models=$(printf "%s\n" "$pull_models" | tr ',' ' ')
+  for model in $normalized_models; do
+    [ -n "$model" ] || continue
+    log "Pulling model: $model"
+    ollama pull "$model"
+  done
 fi
 
 log "Done."

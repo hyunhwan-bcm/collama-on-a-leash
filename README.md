@@ -47,7 +47,7 @@ SET_ROOT_PASSWORD=1 \
 ROOT_PASSWORD='change-me' \
 INSTALL_TAILSCALE=0 \
 START_OLLAMA_SERVER=1 \
-OLLAMA_MODEL='qwen3:14b' \
+OLLAMA_MODELS='qwen3:0.6b,qwen3:14b' \
 curl -fsSL https://raw.githubusercontent.com/hyunhwan-bcm/collama-on-a-leash/main/install.sh | sh
 ```
 
@@ -63,7 +63,8 @@ curl -fsSL https://raw.githubusercontent.com/hyunhwan-bcm/collama-on-a-leash/mai
 - `ROOT_PASSWORD` default: `root`
 - `INSTALL_TAILSCALE` default: `0`
 - `START_OLLAMA_SERVER` default: `1`
-- `OLLAMA_MODEL` default: empty (no auto-pull)
+- `OLLAMA_MODELS` default: empty (no auto-pull). Supports comma or space separated list.
+- `OLLAMA_MODEL` default: empty (backward-compatible single model)
 - `TAILSCALE_AUTHKEY` optional if `INSTALL_TAILSCALE=1`
 
 ## Example profiles
@@ -74,7 +75,7 @@ Minimal Ollama server only:
 ENABLE_SSH=0 \
 SET_ROOT_PASSWORD=0 \
 INSTALL_TAILSCALE=0 \
-OLLAMA_MODEL='qwen3:0.6b' \
+OLLAMA_MODELS='qwen3:0.6b qwen3:14b' \
 curl -fsSL https://raw.githubusercontent.com/hyunhwan-bcm/collama-on-a-leash/main/install.sh | sh
 ```
 
