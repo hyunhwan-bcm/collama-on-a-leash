@@ -1,6 +1,6 @@
 # collama-on-a-leash
 
-One-stop Colab bootstrap for Ollama with optional SSH, Tailscale, and `llama.cpp` CUDA build.
+One-stop Colab bootstrap for Ollama with optional SSH and Tailscale.
 
 ## Quick start
 
@@ -46,7 +46,6 @@ ENABLE_SSH=1 \
 SET_ROOT_PASSWORD=1 \
 ROOT_PASSWORD='change-me' \
 INSTALL_TAILSCALE=0 \
-INSTALL_LLAMA_CPP=0 \
 START_OLLAMA_SERVER=1 \
 OLLAMA_MODEL='qwen3:14b' \
 curl -fsSL https://raw.githubusercontent.com/hyunhwan-bcm/collama-on-a-leash/main/install.sh | sh
@@ -63,7 +62,6 @@ curl -fsSL https://raw.githubusercontent.com/hyunhwan-bcm/collama-on-a-leash/mai
 - `SET_ROOT_PASSWORD` default: `1`
 - `ROOT_PASSWORD` default: `root`
 - `INSTALL_TAILSCALE` default: `0`
-- `INSTALL_LLAMA_CPP` default: `0`
 - `START_OLLAMA_SERVER` default: `1`
 - `OLLAMA_MODEL` default: empty (no auto-pull)
 - `TAILSCALE_AUTHKEY` optional if `INSTALL_TAILSCALE=1`
@@ -76,7 +74,6 @@ Minimal Ollama server only:
 ENABLE_SSH=0 \
 SET_ROOT_PASSWORD=0 \
 INSTALL_TAILSCALE=0 \
-INSTALL_LLAMA_CPP=0 \
 OLLAMA_MODEL='qwen3:0.6b' \
 curl -fsSL https://raw.githubusercontent.com/hyunhwan-bcm/collama-on-a-leash/main/install.sh | sh
 ```

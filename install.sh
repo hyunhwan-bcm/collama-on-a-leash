@@ -85,7 +85,6 @@ fi
 : "${SET_ROOT_PASSWORD:=1}"
 : "${ROOT_PASSWORD:=root}"
 : "${INSTALL_TAILSCALE:=0}"
-: "${INSTALL_LLAMA_CPP:=0}"
 : "${START_OLLAMA_SERVER:=1}"
 : "${OLLAMA_MODEL:=}"
 
@@ -117,16 +116,6 @@ apt_install \
   pciutils \
   tmux \
   zstd
-
-if [ "$INSTALL_LLAMA_CPP" = "1" ]; then
-  log "Installing llama.cpp dependencies and building with CUDA..."
-  apt_install build-essential
-  if [ ! -d llama.cpp ]; then
-    git clone https://github.com/ggml-org/llama.cpp.git
-  fi
-  cmake -S llama.cpp -B llama.cpp/build -DGGML_CUDA=ON
-  cmake --build llama.cpp/build -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
-fi
 
 if [ "$INSTALL_TAILSCALE" = "1" ]; then
   log "Installing Tailscale..."
