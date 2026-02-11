@@ -61,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/hyunhwan-bcm/collama-on-a-leash/mai
 - `ENABLE_SSH` default: `1`
 - `SET_ROOT_PASSWORD` default: `1`
 - `ROOT_PASSWORD` default: `root`
-- `INSTALL_TAILSCALE` default: `0`
+- `INSTALL_TAILSCALE` default: `1`
 - `START_OLLAMA_SERVER` default: `1`
 - `OLLAMA_MODELS` default: empty (no auto-pull). Supports comma or space separated list.
 - `OLLAMA_MODEL` default: empty (backward-compatible single model)
