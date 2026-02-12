@@ -214,7 +214,7 @@ if [ -n "$pull_models" ]; then
   # Stop temporary server if we started it
   if [ -n "$temp_ollama_pid" ]; then
     log "Stopping temporary Ollama server..."
-    kill "$temp_ollama_pid" 2>/dev/null || true
+    kill -TERM "$temp_ollama_pid" 2>/dev/null || true
     
     # Wait for process to terminate
     max_wait=10
