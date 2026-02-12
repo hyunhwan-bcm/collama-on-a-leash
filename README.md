@@ -28,7 +28,8 @@ The installer configures:
 - `OLLAMA_NUM_PARALLEL=4`
 - SSH enabled with root login + password authentication
 - Root password set from `ROOT_PASSWORD` (default: `root`) when `SET_ROOT_PASSWORD=1`
-- `ollama serve` started in background (unless already running)
+- Tailscale installed (if `INSTALL_TAILSCALE=1`) but requires manual `tailscale up`
+- `ollama serve` started in foreground (unless already running)
 
 Defaults only apply if you did not already export those environment variables.
 
@@ -61,11 +62,10 @@ curl -fsSL https://raw.githubusercontent.com/hyunhwan-bcm/collama-on-a-leash/mai
 - `ENABLE_SSH` default: `1`
 - `SET_ROOT_PASSWORD` default: `1`
 - `ROOT_PASSWORD` default: `root`
-- `INSTALL_TAILSCALE` default: `1`
+- `INSTALL_TAILSCALE` default: `1` (installs Tailscale but requires manual `tailscale up`)
 - `START_OLLAMA_SERVER` default: `1`
 - `OLLAMA_MODELS` default: empty (no auto-pull). Supports comma or space separated list.
 - `OLLAMA_MODEL` default: empty (backward-compatible single model)
-- `TAILSCALE_AUTHKEY` optional if `INSTALL_TAILSCALE=1`
 
 ## Example profiles
 
@@ -86,9 +86,10 @@ ENABLE_SSH=1 \
 SET_ROOT_PASSWORD=1 \
 ROOT_PASSWORD='strong-password-here' \
 INSTALL_TAILSCALE=1 \
-TAILSCALE_AUTHKEY='tskey-xxxxx' \
 curl -fsSL https://raw.githubusercontent.com/hyunhwan-bcm/collama-on-a-leash/main/install.sh | sh
 ```
+
+After installation, run `sudo tailscale up` to connect to your Tailscale network.
 
 ## Verify after install
 

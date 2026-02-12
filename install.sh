@@ -128,11 +128,7 @@ if [ "$INSTALL_TAILSCALE" = "1" ]; then
     run_root nohup tailscaled --tun=userspace-networking >/tmp/tailscaled.log 2>&1 &
   fi
 
-  if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
-    run_root tailscale up --authkey "$TAILSCALE_AUTHKEY"
-  else
-    warn "Tailscale installed. Run 'sudo tailscale up' (or set TAILSCALE_AUTHKEY) to connect."
-  fi
+  log "Tailscale installed. Please run 'sudo tailscale up' to connect."
 fi
 
 if [ "$ENABLE_SSH" = "1" ]; then
@@ -166,21 +162,7 @@ export OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL}"
 EOF
 run_root chmod 644 /etc/profile.d/ollama-env.sh
 
-if [ "$START_OLLAMA_SERVER" = "1" ]; then
-  if pgrep -f "ollama serve" >/dev/null 2>&1; then
-    warn "An Ollama server process is already running. Leaving it unchanged."
-  else
-    log "Starting Ollama server on http://${OLLAMA_HOST} ..."
-    nohup env \
-      OLLAMA_HOST="${OLLAMA_HOST}" \
-      OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH}" \
-      OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE}" \
-      OLLAMA_FLASH_ATTENTION="${OLLAMA_FLASH_ATTENTION}" \
-      OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL}" \
-      ollama serve >/tmp/ollama-server.log 2>&1 &
-  fi
-fi
-
+# Pull models before starting server (if models are specified)
 pull_models="$OLLAMA_MODELS"
 if [ -n "$OLLAMA_MODEL" ]; then
   if [ -n "$pull_models" ]; then
@@ -191,12 +173,49 @@ if [ -n "$OLLAMA_MODEL" ]; then
 fi
 
 if [ -n "$pull_models" ]; then
+  # Start server temporarily in background to pull models
+  if ! pgrep -f "ollama serve" >/dev/null 2>&1; then
+    log "Starting temporary Ollama server for model pulling..."
+    nohup env \
+      OLLAMA_HOST="${OLLAMA_HOST}" \
+      OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH}" \
+      OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE}" \
+      OLLAMA_FLASH_ATTENTION="${OLLAMA_FLASH_ATTENTION}" \
+      OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL}" \
+      ollama serve >/tmp/ollama-server.log 2>&1 &
+    temp_ollama_pid=$!
+    sleep 5  # Wait for server to start
+  fi
+
   normalized_models=$(printf "%s\n" "$pull_models" | tr ',' ' ')
   for model in $normalized_models; do
     [ -n "$model" ] || continue
     log "Pulling model: $model"
     ollama pull "$model"
   done
+
+  # Stop temporary server if we started it
+  if [ -n "${temp_ollama_pid:-}" ]; then
+    log "Stopping temporary Ollama server..."
+    kill "$temp_ollama_pid" 2>/dev/null || true
+    sleep 2
+  fi
+fi
+
+if [ "$START_OLLAMA_SERVER" = "1" ]; then
+  if pgrep -f "ollama serve" >/dev/null 2>&1; then
+    warn "An Ollama server process is already running. Leaving it unchanged."
+  else
+    log "Starting Ollama server on http://${OLLAMA_HOST} ..."
+    log "Ollama will run in foreground. Press Ctrl+C to stop."
+    env \
+      OLLAMA_HOST="${OLLAMA_HOST}" \
+      OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH}" \
+      OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE}" \
+      OLLAMA_FLASH_ATTENTION="${OLLAMA_FLASH_ATTENTION}" \
+      OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL}" \
+      ollama serve
+  fi
 fi
 
 log "Done."
