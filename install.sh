@@ -174,6 +174,7 @@ fi
 
 if [ -n "$pull_models" ]; then
   # Start server temporarily in background to pull models
+  temp_ollama_pid=""
   if ! pgrep -f "ollama serve" >/dev/null 2>&1; then
     log "Starting temporary Ollama server for model pulling..."
     nohup env \
@@ -184,7 +185,23 @@ if [ -n "$pull_models" ]; then
       OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL}" \
       ollama serve >/tmp/ollama-server.log 2>&1 &
     temp_ollama_pid=$!
-    sleep 5  # Wait for server to start
+    
+    # Wait for server to be ready
+    log "Waiting for Ollama server to be ready..."
+    max_wait=30
+    waited=0
+    while [ $waited -lt $max_wait ]; do
+      if curl -s "http://${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+        log "Ollama server is ready."
+        break
+      fi
+      sleep 1
+      waited=$((waited + 1))
+    done
+    
+    if [ $waited -eq $max_wait ]; then
+      warn "Ollama server did not become ready in ${max_wait} seconds. Continuing anyway..."
+    fi
   fi
 
   normalized_models=$(printf "%s\n" "$pull_models" | tr ',' ' ')
@@ -195,10 +212,25 @@ if [ -n "$pull_models" ]; then
   done
 
   # Stop temporary server if we started it
-  if [ -n "${temp_ollama_pid:-}" ]; then
+  if [ -n "$temp_ollama_pid" ]; then
     log "Stopping temporary Ollama server..."
     kill "$temp_ollama_pid" 2>/dev/null || true
-    sleep 2
+    
+    # Wait for process to terminate
+    max_wait=10
+    waited=0
+    while [ $waited -lt $max_wait ]; do
+      if ! kill -0 "$temp_ollama_pid" 2>/dev/null; then
+        break
+      fi
+      sleep 1
+      waited=$((waited + 1))
+    done
+    
+    if kill -0 "$temp_ollama_pid" 2>/dev/null; then
+      warn "Temporary server did not stop gracefully, forcing termination..."
+      kill -9 "$temp_ollama_pid" 2>/dev/null || true
+    fi
   fi
 fi
 
@@ -207,7 +239,7 @@ if [ "$START_OLLAMA_SERVER" = "1" ]; then
     warn "An Ollama server process is already running. Leaving it unchanged."
   else
     log "Starting Ollama server on http://${OLLAMA_HOST} ..."
-    log "Ollama will run in foreground. Press Ctrl+C to stop."
+    log "Ollama will run in the foreground. Press Ctrl+C to stop."
     env \
       OLLAMA_HOST="${OLLAMA_HOST}" \
       OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH}" \
