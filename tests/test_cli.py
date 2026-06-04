@@ -14,6 +14,8 @@ class Calls:
         self.items.append((list(cmd), input))
         if cmd[-3:] == ["status", "-s", "collama"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="[colab] Session 'collama' not found.\n", stderr="")
+        if input and "__COLLAMA_REMOTE_EXIT_CODE__" in input:
+            return subprocess.CompletedProcess(cmd, 0, stdout="__COLLAMA_REMOTE_EXIT_CODE__=0\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0)
 
 
@@ -27,12 +29,19 @@ def payload(calls: Calls) -> str:
     return calls.items[-1][1] or ""
 
 
+def remote_script_payload(calls: Calls) -> str:
+    for _, item_input in calls.items:
+        if item_input and "/tmp/collama-on-a-leash.sh" in item_input:
+            return item_input
+    raise AssertionError("remote script payload was not executed")
+
+
 def test_install_creates_gpu_session_and_builds_cuda_llama_cpp() -> None:
     calls = Calls()
     assert run_cli(["install", "--ref", "master", "--jobs", "2"], calls) == 0
     assert calls.items[0][0] == ["colab", "status", "-s", "collama"]
     assert calls.items[1][0] == ["colab", "new", "-s", "collama", "--gpu", "G4"]
-    body = payload(calls)
+    body = remote_script_payload(calls)
     assert "set -euxo pipefail" in body
     assert "[collama:install]" in body
     assert "Installing build dependencies" in body
@@ -44,7 +53,8 @@ def test_install_creates_gpu_session_and_builds_cuda_llama_cpp() -> None:
     assert "-DGGML_CUDA=ON" in body
     assert "--target llama-server llama-cli llama-bench" in body
     assert "raise SystemExit" not in body
-    assert "collama remote script failed" in body
+    assert "raise RuntimeError" not in body
+    assert "__COLLAMA_REMOTE_EXIT_CODE__" in payload(calls)
 
 
 def test_install_reuses_existing_session() -> None:
@@ -54,6 +64,8 @@ def test_install_reuses_existing_session() -> None:
         calls.items.append((list(cmd), input))
         if cmd[-3:] == ["status", "-s", "collama"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="Name: collama | Hardware: G4 | Status: IDLE\n", stderr="")
+        if input and "__COLLAMA_REMOTE_EXIT_CODE__" in input:
+            return subprocess.CompletedProcess(cmd, 0, stdout="__COLLAMA_REMOTE_EXIT_CODE__=0\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0)
 
     with patch("shutil.which", return_value="/bin/colab"), patch("subprocess.run", run):
@@ -61,6 +73,26 @@ def test_install_reuses_existing_session() -> None:
 
     assert calls.items[0][0] == ["colab", "status", "-s", "collama"]
     assert calls.items[1][0] == ["colab", "exec", "-s", "collama"]
+    assert calls.items[2][0] == ["colab", "exec", "-s", "collama"]
+
+
+def test_remote_script_failure_is_reported_locally_without_remote_traceback() -> None:
+    calls = Calls()
+
+    def run(cmd, input=None, text=None, stdout=None, stderr=None, capture_output=None):
+        calls.items.append((list(cmd), input))
+        if cmd[-3:] == ["status", "-s", "collama"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="Name: collama | Hardware: G4 | Status: IDLE\n", stderr="")
+        if input and "__COLLAMA_REMOTE_EXIT_CODE__" in input:
+            return subprocess.CompletedProcess(cmd, 0, stdout="__COLLAMA_REMOTE_EXIT_CODE__=1\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    with patch("shutil.which", return_value="/bin/colab"), patch("subprocess.run", run):
+        assert cli.main(["install"]) == 1
+
+    body = remote_script_payload(calls)
+    assert "raise RuntimeError" not in body
+    assert "remote script exit code" in body
 
 
 def test_new_creates_session_without_running_install_script() -> None:
@@ -72,7 +104,7 @@ def test_new_creates_session_without_running_install_script() -> None:
 def test_tailscale_uses_authkey_hostname_and_starts_daemon() -> None:
     calls = Calls()
     assert run_cli(["tailscale", "--authkey", "tskey-test", "--hostname", "colab-node"], calls) == 0
-    body = payload(calls)
+    body = remote_script_payload(calls)
     assert "curl -fsSL https://tailscale.com/install.sh | sh" in body
     assert "tailscale up --hostname colab-node --authkey tskey-test" in body
     assert "tailscaled --tun=userspace-networking" in body
@@ -81,7 +113,7 @@ def test_tailscale_uses_authkey_hostname_and_starts_daemon() -> None:
 def test_tailscale_without_authkey_prints_manual_command() -> None:
     calls = Calls()
     assert run_cli(["tailscale", "--hostname", "manual-node"], calls) == 0
-    body = payload(calls)
+    body = remote_script_payload(calls)
     assert "TAILSCALE_AUTHKEY was not provided" in body
     assert "tailscale up --hostname manual-node" in body
 
@@ -94,7 +126,7 @@ def test_healthcheck_prints_json() -> None:
 def test_serve_starts_llama_server_with_defaults_and_model() -> None:
     calls = Calls()
     assert run_cli(["serve", "unsloth/Qwen3-GGUF"], calls) == 0
-    body = payload(calls)
+    body = remote_script_payload(calls)
     assert "llama-server" in body
     assert "--hf-repo unsloth/Qwen3-GGUF --host 0.0.0.0 --port 8000" in body
     assert "/tmp/collama-llama-server.pid" in body
@@ -104,7 +136,7 @@ def test_stop_does_not_create_session_and_errors_when_no_remote_pid() -> None:
     calls = Calls()
     assert run_cli(["stop"], calls) == 0
     assert calls.items[0][0] == ["colab", "exec", "-s", "collama"]
-    body = payload(calls)
+    body = remote_script_payload(calls)
     assert "No llama-server PID file found" in body
     assert "exit 1" in body
 
@@ -112,7 +144,7 @@ def test_stop_does_not_create_session_and_errors_when_no_remote_pid() -> None:
 def test_benchy_runs_llama_benchy_against_v1_endpoint() -> None:
     calls = Calls()
     assert run_cli(["benchy", "--address", "100.1.2.3", "--port", "8000", "--model", "repo/model"], calls) == 0
-    body = payload(calls)
+    body = remote_script_payload(calls)
     assert "git+https://github.com/eugr/llama-benchy" in body
     assert "--base-url http://100.1.2.3:8000/v1 --model repo/model" in body
 
@@ -121,6 +153,6 @@ def test_host_prints_tailscale_ip_and_status_without_creating_session() -> None:
     calls = Calls()
     assert run_cli(["host"], calls) == 0
     assert calls.items[0][0] == ["colab", "exec", "-s", "collama"]
-    body = payload(calls)
+    body = remote_script_payload(calls)
     assert "tailscale ip -4" in body
     assert "tailscale status" in body

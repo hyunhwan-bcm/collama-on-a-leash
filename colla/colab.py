@@ -6,6 +6,9 @@ import sys
 from dataclasses import dataclass
 
 
+REMOTE_EXIT_CODE_PATH = "/tmp/collama-on-a-leash.exit"
+
+
 @dataclass(frozen=True)
 class ColabOptions:
     session: str
@@ -64,6 +67,9 @@ class ColabRunner:
         payload = _python_payload(script)
         self._log(f"Executing remote script in Colab session '{self.options.session}'.")
         self._run(self._base_cmd(["exec", "-s", self.options.session]), input_text=payload)
+        exit_code = self._read_remote_exit_code()
+        if exit_code != 0:
+            raise ColabError(f"Remote script failed with exit code {exit_code}.")
 
     def _status_ok(self) -> bool:
         self.require_cli()
@@ -86,15 +92,45 @@ class ColabRunner:
         cmd.extend(args)
         return cmd
 
-    def _run(self, cmd: list[str], *, input_text: str | None = None) -> None:
+    def _run(
+        self,
+        cmd: list[str],
+        *,
+        input_text: str | None = None,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str] | None:
         if self.dry_run:
             self._print_command(cmd)
             if input_text:
                 print(input_text)
             return
-        proc = subprocess.run(cmd, input=input_text, text=True)
+        proc = subprocess.run(cmd, input=input_text, text=True, capture_output=capture_output)
         if proc.returncode != 0:
             raise ColabError(f"Command failed with exit code {proc.returncode}: {' '.join(cmd)}")
+        return proc
+
+    def _read_remote_exit_code(self) -> int:
+        payload = (
+            "import pathlib\n"
+            f"path = pathlib.Path({REMOTE_EXIT_CODE_PATH!r})\n"
+            "value = path.read_text().strip() if path.exists() else 'missing'\n"
+            "print(f'__COLLAMA_REMOTE_EXIT_CODE__={value}')\n"
+        )
+        proc = self._run(
+            self._base_cmd(["exec", "-s", self.options.session]),
+            input_text=payload,
+            capture_output=True,
+        )
+        if proc is None:
+            return 0
+        marker = "__COLLAMA_REMOTE_EXIT_CODE__="
+        for line in proc.stdout.splitlines():
+            if marker in line:
+                value = line.rsplit(marker, 1)[1].strip()
+                if value.isdigit():
+                    return int(value)
+                raise ColabError(f"Remote script exit code was not recorded: {value}")
+        raise ColabError("Could not read remote script exit code from Colab output.")
 
     @staticmethod
     def _print_command(cmd: list[str]) -> None:
@@ -107,15 +143,16 @@ class ColabRunner:
 
 def _python_payload(script: str) -> str:
     return (
-        "import pathlib, subprocess, sys\n"
+        "import pathlib, subprocess\n"
         "script = r'''\n"
         f"{script}\n"
         "'''\n"
         "path = pathlib.Path('/tmp/collama-on-a-leash.sh')\n"
+        f"exit_path = pathlib.Path({REMOTE_EXIT_CODE_PATH!r})\n"
+        "exit_path.write_text('127')\n"
         "path.write_text(script)\n"
         "path.chmod(0o755)\n"
         "result = subprocess.run(['bash', str(path)], text=True)\n"
-        "if result.returncode:\n"
-        "    print(f'[collama] remote script failed with exit code {result.returncode}', file=sys.stderr)\n"
-        "    raise RuntimeError(f'collama remote script failed with exit code {result.returncode}')\n"
+        "exit_path.write_text(str(result.returncode))\n"
+        "print(f'[collama] remote script exit code: {result.returncode}')\n"
     )
