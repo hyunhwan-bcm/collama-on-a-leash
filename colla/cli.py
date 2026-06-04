@@ -17,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run llama.cpp on Google Colab through google-colab-cli.",
     )
     parser.add_argument("-s", "--session", default="collama", help="Colab session name.")
-    parser.add_argument("--gpu", default="L4", choices=["T4", "L4", "A100", "H100"], help="GPU for new sessions.")
+    parser.add_argument("--gpu", default="G4", choices=["G4", "T4", "L4", "A100", "H100"], help="GPU for new sessions.")
     parser.add_argument("--auth", choices=["oauth2", "adc"], help="Authentication mode passed to colab.")
     parser.add_argument("--config", help="Session config path passed to colab.")
     parser.add_argument("--colab-bin", default="colab", help="google-colab-cli executable.")

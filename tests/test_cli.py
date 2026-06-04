@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from unittest.mock import patch
 
-from collama_on_a_leash import cli
+from colla import cli
 
 
 class Calls:
@@ -31,7 +31,7 @@ def test_install_creates_gpu_session_and_builds_cuda_llama_cpp() -> None:
     calls = Calls()
     assert run_cli(["install", "--ref", "master", "--jobs", "2"], calls) == 0
     assert calls.items[0][0] == ["colab", "status", "-s", "collama"]
-    assert calls.items[1][0] == ["colab", "new", "-s", "collama", "--gpu", "L4"]
+    assert calls.items[1][0] == ["colab", "new", "-s", "collama", "--gpu", "G4"]
     body = payload(calls)
     assert "git clone https://github.com/ggml-org/llama.cpp" in body
     assert "-DGGML_CUDA=ON" in body
@@ -56,7 +56,7 @@ def test_tailscale_without_authkey_prints_manual_command() -> None:
 
 
 def test_healthcheck_prints_json() -> None:
-    with patch("collama_on_a_leash.cli.check_health", return_value={"base_url": "http://100.1.2.3:8000"}):
+    with patch("colla.cli.check_health", return_value={"base_url": "http://100.1.2.3:8000"}):
         assert cli.main(["healthcheck", "100.1.2.3"]) == 0
 
 

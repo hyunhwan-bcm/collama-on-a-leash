@@ -9,7 +9,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ColabOptions:
     session: str
-    gpu: str | None = "L4"
+    gpu: str | None = "G4"
     auth: str | None = None
     config: str | None = None
     colab_bin: str = "colab"

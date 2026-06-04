@@ -25,14 +25,14 @@ You can also run from the checkout:
 
 ```bash
 ./install.sh --help
-python3 -m collama_on_a_leash --help
+python3 -m colla --help
 ```
 
 ## Commands
 
 All remote commands use a Colab session named `collama` by default. Override it
-with `-s NAME`. New sessions request an L4 GPU by default; use `--gpu T4`,
-`--gpu A100`, or `--gpu H100` when creating a session.
+with `-s NAME`. New sessions request a G4 GPU by default; use `--gpu T4`,
+`--gpu L4`, `--gpu A100`, or `--gpu H100` when creating a session.
 
 ### `install`
 
