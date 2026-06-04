@@ -21,6 +21,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--auth", choices=["oauth2", "adc"], help="Authentication mode passed to colab.")
     parser.add_argument("--config", help="Session config path passed to colab.")
     parser.add_argument("--colab-bin", default="colab", help="google-colab-cli executable.")
+    parser.add_argument("--create-retries", type=int, default=3, help="Attempts for transient Colab session creation failures.")
+    parser.add_argument("--create-retry-delay", type=float, default=10.0, help="Seconds to wait between Colab session creation retries.")
     parser.add_argument("--dry-run", action="store_true", help="Print Colab commands and generated scripts.")
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -89,6 +91,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             auth=args.auth,
             config=args.config,
             colab_bin=args.colab_bin,
+            create_retries=args.create_retries,
+            create_retry_delay=args.create_retry_delay,
         ),
         dry_run=args.dry_run,
     )

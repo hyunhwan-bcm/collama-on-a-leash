@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 
 
@@ -16,6 +17,8 @@ class ColabOptions:
     auth: str | None = None
     config: str | None = None
     colab_bin: str = "colab"
+    create_retries: int = 3
+    create_retry_delay: float = 10.0
 
 
 class ColabError(RuntimeError):
@@ -49,7 +52,7 @@ class ColabRunner:
     def create_session(self) -> None:
         self.require_cli()
         self._log(f"Creating Colab session '{self.options.session}' with GPU {self.options.gpu}.")
-        self._run(self.create_session_cmd())
+        self._run_create_session(self.create_session_cmd())
 
     def create_session_cmd(self) -> list[str]:
         cmd = self._base_cmd(["new", "-s", self.options.session])
@@ -107,6 +110,32 @@ class ColabRunner:
         if proc.returncode != 0:
             raise ColabError(f"Command failed with exit code {proc.returncode}: {' '.join(cmd)}")
         return proc
+
+    def _run_create_session(self, cmd: list[str]) -> None:
+        if self.dry_run:
+            self._print_command(cmd)
+            return
+
+        attempts = max(1, self.options.create_retries)
+        for attempt in range(1, attempts + 1):
+            proc = subprocess.run(cmd, text=True, capture_output=True)
+            _print_completed_process_output(proc)
+            if proc.returncode == 0:
+                return
+            if attempt < attempts and _is_retryable_colab_create_failure(proc):
+                self._log(
+                    f"Colab session creation failed transiently; retrying in "
+                    f"{self.options.create_retry_delay:g}s ({attempt}/{attempts})."
+                )
+                time.sleep(self.options.create_retry_delay)
+                continue
+            if _is_retryable_colab_create_failure(proc):
+                raise ColabError(
+                    f"Colab session creation failed after {attempts} attempts. "
+                    "This is a Colab runtime assignment error; retry later or choose another GPU with "
+                    "`--gpu T4`, `--gpu L4`, `--gpu A100`, or `--gpu H100`."
+                )
+            raise ColabError(f"Command failed with exit code {proc.returncode}: {' '.join(cmd)}")
 
     def _run_exec_payload(self, cmd: list[str], payload: str) -> int:
         if self.dry_run:
@@ -192,3 +221,22 @@ def _wait_for_process(proc: subprocess.Popen[str]) -> int:
     except subprocess.TimeoutExpired:
         proc.kill()
         return proc.wait()
+
+
+def _print_completed_process_output(proc: subprocess.CompletedProcess[str]) -> None:
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+
+
+def _is_retryable_colab_create_failure(proc: subprocess.CompletedProcess[str]) -> bool:
+    output = f"{proc.stdout}\n{proc.stderr}".lower()
+    retryable_markers = [
+        "service unavailable",
+        "failed to issue request",
+        "colabrequesterror",
+        "temporarily unavailable",
+        "timeout",
+    ]
+    return any(marker in output for marker in retryable_markers)

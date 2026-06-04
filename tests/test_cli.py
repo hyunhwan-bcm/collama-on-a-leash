@@ -220,6 +220,65 @@ def test_new_creates_session_without_running_install_script() -> None:
     assert calls.items == [(["colab", "new", "-s", "collama", "--gpu", "G4"], None)]
 
 
+def test_new_retries_transient_colab_assignment_failure() -> None:
+    calls = Calls()
+    new_attempts = 0
+
+    def run(cmd, input=None, text=None, stdout=None, stderr=None, capture_output=None):
+        nonlocal new_attempts
+        calls.items.append((list(cmd), input))
+        if cmd == ["colab", "new", "-s", "collama", "--gpu", "G4"]:
+            new_attempts += 1
+            if new_attempts == 1:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    1,
+                    stdout="",
+                    stderr="ColabRequestError: Failed to issue request POST assign: Service Unavailable\n",
+                )
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with (
+        patch("shutil.which", return_value="/bin/colab"),
+        patch("subprocess.run", run),
+        patch("subprocess.Popen", calls.popen),
+        patch("time.sleep"),
+    ):
+        assert cli.main(["--create-retry-delay", "0", "new"]) == 0
+
+    assert new_attempts == 2
+    assert calls.items == [
+        (["colab", "new", "-s", "collama", "--gpu", "G4"], None),
+        (["colab", "new", "-s", "collama", "--gpu", "G4"], None),
+    ]
+
+
+def test_new_reports_colab_assignment_failure_after_retries(capsys) -> None:
+    calls = Calls()
+
+    def run(cmd, input=None, text=None, stdout=None, stderr=None, capture_output=None):
+        calls.items.append((list(cmd), input))
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            stdout="",
+            stderr="ColabRequestError: Failed to issue request POST assign: Service Unavailable\n",
+        )
+
+    with (
+        patch("shutil.which", return_value="/bin/colab"),
+        patch("subprocess.run", run),
+        patch("subprocess.Popen", calls.popen),
+        patch("time.sleep"),
+    ):
+        assert cli.main(["--create-retries", "2", "--create-retry-delay", "0", "new"]) == 1
+
+    err = capsys.readouterr().err
+    assert "Colab session creation failed after 2 attempts" in err
+    assert "--gpu T4" in err
+    assert len(calls.items) == 2
+
+
 def test_tailscale_uses_authkey_hostname_and_starts_daemon() -> None:
     calls = Calls()
     assert run_cli(["tailscale", "--authkey", "tskey-test", "--hostname", "colab-node"], calls) == 0
