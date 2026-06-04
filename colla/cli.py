@@ -8,7 +8,7 @@ import sys
 
 from .colab import ColabError, ColabOptions, ColabRunner
 from .health import check_health
-from .scripts import benchy_script, host_script, install_script, serve_script, stop_script, tailscale_script
+from .scripts import benchy_script, host_script, install_script, serve_script, status_script, stop_script, tailscale_script
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     benchy.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra llama-benchy args after --.")
 
     sub.add_parser("host", help="Show the Colab runtime's Tailscale address.")
+    sub.add_parser("status", help="Check llama-server executable and running status.")
     return parser
 
 
@@ -138,6 +139,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         )
     elif args.command == "host":
         runner.run_bash(host_script(), create=False)
+    elif args.command == "status":
+        runner.run_bash(status_script(), create=False)
     else:
         raise RuntimeError(f"unknown command: {args.command}")
     return 0

@@ -24,7 +24,7 @@ step() {{
 export DEBIAN_FRONTEND=noninteractive
 
 step "Installing build dependencies"
-apt-get update
+apt-get update || true
 apt-get install -y build-essential ca-certificates cmake curl git libcurl4-openssl-dev pkg-config python3 python3-pip python3-venv
 
 step "Checking GPU and CUDA toolchain"
@@ -188,6 +188,42 @@ done
 
 echo "llama-server PID $pid did not stop after 20 seconds." >&2
 exit 1
+"""
+
+
+def status_script() -> str:
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== llama-server executable check ==="
+if [ -x {q(LLAMA_DIR)}/build/bin/llama-server ]; then
+  echo "llama-server is executable at {LLAMA_DIR}/build/bin/llama-server"
+  {q(LLAMA_DIR)}/build/bin/llama-server --version 2>/dev/null || true
+else
+  echo "llama-server is NOT found or not executable at {LLAMA_DIR}/build/bin/llama-server"
+fi
+
+echo
+echo "=== llama-server running check ==="
+if [ -f {q(SERVER_PID)} ]; then
+  pid="$(cat {q(SERVER_PID)})"
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    echo "llama-server is running with PID $pid (from PID file)"
+  else
+    echo "llama-server PID file exists (PID $pid) but process is NOT running"
+  fi
+else
+  echo "No llama-server PID file at {SERVER_PID}"
+fi
+
+# Also check for any llama-server processes not managed by PID file
+running_pids=$(pgrep -f 'llama-server' 2>/dev/null || true)
+if [ -n "$running_pids" ]; then
+  echo "Found running llama-server process(es): $running_pids"
+  ps -p $running_pids -o pid,ppid,cmd 2>/dev/null || true
+else
+  echo "No llama-server processes found"
+fi
 """
 
 
