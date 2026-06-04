@@ -11,6 +11,7 @@ class Calls:
     def __init__(self) -> None:
         self.items: list[tuple[list[str], str | None]] = []
         self.popen_inputs: list[str] = []
+        self.last_popen: FakePopen | None = None
 
     def run(self, cmd, input=None, text=None, stdout=None, stderr=None, capture_output=None):
         self.items.append((list(cmd), input))
@@ -22,7 +23,10 @@ class Calls:
 
     def popen(self, cmd, stdin=None, stdout=None, stderr=None, text=None, bufsize=None):
         self.items.append((list(cmd), None))
-        return FakePopen("[collama] remote script exit code: 0\n", returncode=0, inputs=self.popen_inputs)
+        self.last_popen = FakePopen(
+            "[collama] remote script exit code: 0\n", returncode=0, inputs=self.popen_inputs
+        )
+        return self.last_popen
 
 
 class FakePopen:
@@ -30,8 +34,16 @@ class FakePopen:
         self.stdin = CapturingStdin(inputs)
         self.stdout = StringIO(output)
         self._returncode = returncode
+        self.terminated = False
+        self.killed = False
 
-    def wait(self) -> int:
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def wait(self, timeout=None) -> int:
         return self._returncode
 
 
@@ -148,7 +160,7 @@ def test_colab_cli_timeout_after_remote_success_is_ignored() -> None:
 
     def popen(cmd, stdin=None, stdout=None, stderr=None, text=None, bufsize=None):
         calls.items.append((list(cmd), None))
-        return FakePopen(
+        calls.last_popen = FakePopen(
             "[collama:install] Installed llama-server version\n"
             "[collama] remote script exit code: 0\n"
             "Traceback (most recent call last):\n"
@@ -156,6 +168,7 @@ def test_colab_cli_timeout_after_remote_success_is_ignored() -> None:
             returncode=1,
             inputs=calls.popen_inputs,
         )
+        return calls.last_popen
 
     with (
         patch("shutil.which", return_value="/bin/colab"),
@@ -163,6 +176,9 @@ def test_colab_cli_timeout_after_remote_success_is_ignored() -> None:
         patch("subprocess.Popen", popen),
     ):
         assert cli.main(["install"]) == 0
+
+    assert calls.last_popen is not None
+    assert calls.last_popen.terminated
 
 
 def test_colab_cli_traceback_after_remote_success_is_suppressed(capsys) -> None:

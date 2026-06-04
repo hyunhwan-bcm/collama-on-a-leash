@@ -138,8 +138,11 @@ class ColabRunner:
                 if value.isdigit():
                     remote_exit_code = int(value)
                     suppress_after_success = remote_exit_code == 0
+                    if suppress_after_success:
+                        proc.terminate()
+                        break
 
-        local_returncode = proc.wait()
+        local_returncode = _wait_for_process(proc)
         if remote_exit_code is not None:
             return remote_exit_code
         if local_returncode != 0:
@@ -181,3 +184,11 @@ def _python_payload(script: str) -> str:
         "print(f'[collama] remote script exit code: {exit_code}', flush=True)\n"
         "sys.stdout.flush()\n"
     )
+
+
+def _wait_for_process(proc: subprocess.Popen[str]) -> int:
+    try:
+        return proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return proc.wait()
