@@ -66,8 +66,7 @@ class ColabRunner:
             self.ensure_session()
         payload = _python_payload(script)
         self._log(f"Executing remote script in Colab session '{self.options.session}'.")
-        self._run(self._base_cmd(["exec", "-s", self.options.session]), input_text=payload)
-        exit_code = self._read_remote_exit_code()
+        exit_code = self._run_exec_payload(self._base_cmd(["exec", "-s", self.options.session]), payload)
         if exit_code != 0:
             raise ColabError(f"Remote script failed with exit code {exit_code}.")
 
@@ -109,28 +108,40 @@ class ColabRunner:
             raise ColabError(f"Command failed with exit code {proc.returncode}: {' '.join(cmd)}")
         return proc
 
-    def _read_remote_exit_code(self) -> int:
-        payload = (
-            "import pathlib\n"
-            f"path = pathlib.Path({REMOTE_EXIT_CODE_PATH!r})\n"
-            "value = path.read_text().strip() if path.exists() else 'missing'\n"
-            "print(f'__COLLAMA_REMOTE_EXIT_CODE__={value}')\n"
-        )
-        proc = self._run(
-            self._base_cmd(["exec", "-s", self.options.session]),
-            input_text=payload,
-            capture_output=True,
-        )
-        if proc is None:
+    def _run_exec_payload(self, cmd: list[str], payload: str) -> int:
+        if self.dry_run:
+            self._print_command(cmd)
+            print(payload)
             return 0
-        marker = "__COLLAMA_REMOTE_EXIT_CODE__="
-        for line in proc.stdout.splitlines():
+
+        marker = "[collama] remote script exit code:"
+        remote_exit_code: int | None = None
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        assert proc.stdin is not None
+        assert proc.stdout is not None
+        proc.stdin.write(payload)
+        proc.stdin.close()
+
+        for line in proc.stdout:
+            print(line, end="")
             if marker in line:
                 value = line.rsplit(marker, 1)[1].strip()
                 if value.isdigit():
-                    return int(value)
-                raise ColabError(f"Remote script exit code was not recorded: {value}")
-        raise ColabError("Could not read remote script exit code from Colab output.")
+                    remote_exit_code = int(value)
+
+        local_returncode = proc.wait()
+        if remote_exit_code is not None:
+            return remote_exit_code
+        if local_returncode != 0:
+            raise ColabError(f"Command failed with exit code {local_returncode}: {' '.join(cmd)}")
+        raise ColabError("Remote script exit code was not found in Colab output.")
 
     @staticmethod
     def _print_command(cmd: list[str]) -> None:

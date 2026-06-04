@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from io import StringIO
 from unittest.mock import patch
 
 from colla import cli
@@ -9,6 +10,7 @@ from colla import cli
 class Calls:
     def __init__(self) -> None:
         self.items: list[tuple[list[str], str | None]] = []
+        self.popen_inputs: list[str] = []
 
     def run(self, cmd, input=None, text=None, stdout=None, stderr=None, capture_output=None):
         self.items.append((list(cmd), input))
@@ -18,9 +20,37 @@ class Calls:
             return subprocess.CompletedProcess(cmd, 0, stdout="__COLLAMA_REMOTE_EXIT_CODE__=0\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0)
 
+    def popen(self, cmd, stdin=None, stdout=None, stderr=None, text=None, bufsize=None):
+        self.items.append((list(cmd), None))
+        return FakePopen("[collama] remote script exit code: 0\n", returncode=0, inputs=self.popen_inputs)
+
+
+class FakePopen:
+    def __init__(self, output: str, *, returncode: int, inputs: list[str]) -> None:
+        self.stdin = CapturingStdin(inputs)
+        self.stdout = StringIO(output)
+        self._returncode = returncode
+
+    def wait(self) -> int:
+        return self._returncode
+
+
+class CapturingStdin(StringIO):
+    def __init__(self, inputs: list[str]) -> None:
+        super().__init__()
+        self._inputs = inputs
+
+    def close(self) -> None:
+        self._inputs.append(self.getvalue())
+        super().close()
+
 
 def run_cli(argv: list[str], calls: Calls) -> int:
-    with patch("shutil.which", return_value="/bin/colab"), patch("subprocess.run", calls.run):
+    with (
+        patch("shutil.which", return_value="/bin/colab"),
+        patch("subprocess.run", calls.run),
+        patch("subprocess.Popen", calls.popen),
+    ):
         return cli.main(argv)
 
 
@@ -30,6 +60,9 @@ def payload(calls: Calls) -> str:
 
 
 def remote_script_payload(calls: Calls) -> str:
+    for item_input in calls.popen_inputs:
+        if "/tmp/collama-on-a-leash.sh" in item_input:
+            return item_input
     for _, item_input in calls.items:
         if item_input and "/tmp/collama-on-a-leash.sh" in item_input:
             return item_input
@@ -57,7 +90,6 @@ def test_install_creates_gpu_session_and_builds_cuda_llama_cpp() -> None:
     assert "subprocess.Popen" in body
     assert "stderr=subprocess.STDOUT" in body
     assert "flush=True" in body
-    assert "__COLLAMA_REMOTE_EXIT_CODE__" in payload(calls)
 
 
 def test_install_reuses_existing_session() -> None:
@@ -67,16 +99,17 @@ def test_install_reuses_existing_session() -> None:
         calls.items.append((list(cmd), input))
         if cmd[-3:] == ["status", "-s", "collama"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="Name: collama | Hardware: G4 | Status: IDLE\n", stderr="")
-        if input and "__COLLAMA_REMOTE_EXIT_CODE__" in input:
-            return subprocess.CompletedProcess(cmd, 0, stdout="__COLLAMA_REMOTE_EXIT_CODE__=0\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0)
 
-    with patch("shutil.which", return_value="/bin/colab"), patch("subprocess.run", run):
+    with (
+        patch("shutil.which", return_value="/bin/colab"),
+        patch("subprocess.run", run),
+        patch("subprocess.Popen", calls.popen),
+    ):
         assert cli.main(["install"]) == 0
 
     assert calls.items[0][0] == ["colab", "status", "-s", "collama"]
     assert calls.items[1][0] == ["colab", "exec", "-s", "collama"]
-    assert calls.items[2][0] == ["colab", "exec", "-s", "collama"]
 
 
 def test_remote_script_failure_is_reported_locally_without_remote_traceback() -> None:
@@ -86,16 +119,50 @@ def test_remote_script_failure_is_reported_locally_without_remote_traceback() ->
         calls.items.append((list(cmd), input))
         if cmd[-3:] == ["status", "-s", "collama"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="Name: collama | Hardware: G4 | Status: IDLE\n", stderr="")
-        if input and "__COLLAMA_REMOTE_EXIT_CODE__" in input:
-            return subprocess.CompletedProcess(cmd, 0, stdout="__COLLAMA_REMOTE_EXIT_CODE__=1\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0)
 
-    with patch("shutil.which", return_value="/bin/colab"), patch("subprocess.run", run):
+    def popen(cmd, stdin=None, stdout=None, stderr=None, text=None, bufsize=None):
+        calls.items.append((list(cmd), None))
+        return FakePopen("[collama] remote script exit code: 1\n", returncode=0, inputs=calls.popen_inputs)
+
+    with (
+        patch("shutil.which", return_value="/bin/colab"),
+        patch("subprocess.run", run),
+        patch("subprocess.Popen", popen),
+    ):
         assert cli.main(["install"]) == 1
 
     body = remote_script_payload(calls)
     assert "raise RuntimeError" not in body
     assert "remote script exit code" in body
+
+
+def test_colab_cli_timeout_after_remote_success_is_ignored() -> None:
+    calls = Calls()
+
+    def run(cmd, input=None, text=None, stdout=None, stderr=None, capture_output=None):
+        calls.items.append((list(cmd), input))
+        if cmd[-3:] == ["status", "-s", "collama"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="Name: collama | Hardware: G4 | Status: IDLE\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    def popen(cmd, stdin=None, stdout=None, stderr=None, text=None, bufsize=None):
+        calls.items.append((list(cmd), None))
+        return FakePopen(
+            "[collama:install] Installed llama-server version\n"
+            "[collama] remote script exit code: 0\n"
+            "Traceback (most recent call last):\n"
+            "TimeoutError: Timeout waiting for reply\n",
+            returncode=1,
+            inputs=calls.popen_inputs,
+        )
+
+    with (
+        patch("shutil.which", return_value="/bin/colab"),
+        patch("subprocess.run", run),
+        patch("subprocess.Popen", popen),
+    ):
+        assert cli.main(["install"]) == 0
 
 
 def test_new_creates_session_without_running_install_script() -> None:
