@@ -19,13 +19,20 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y build-essential ca-certificates cmake curl git libcurl4-openssl-dev nvidia-cuda-toolkit pkg-config python3 python3-pip python3-venv
+apt-get install -y build-essential ca-certificates cmake curl git libcurl4-openssl-dev pkg-config python3 python3-pip python3-venv
 
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi
 else
   echo "nvidia-smi is not available; CUDA build may fail." >&2
 fi
+
+if ! command -v nvcc >/dev/null 2>&1; then
+  echo "nvcc is not available. Use a GPU Colab runtime with CUDA before running install." >&2
+  exit 1
+fi
+
+nvcc --version
 
 if [ ! -d {q(LLAMA_DIR)}/.git ]; then
   git clone https://github.com/ggml-org/llama.cpp {q(LLAMA_DIR)}

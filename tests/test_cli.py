@@ -34,8 +34,12 @@ def test_install_creates_gpu_session_and_builds_cuda_llama_cpp() -> None:
     assert calls.items[1][0] == ["colab", "new", "-s", "collama", "--gpu", "G4"]
     body = payload(calls)
     assert "git clone https://github.com/ggml-org/llama.cpp" in body
+    assert "nvidia-cuda-toolkit" not in body
+    assert "command -v nvcc" in body
     assert "-DGGML_CUDA=ON" in body
     assert "--target llama-server llama-cli llama-bench" in body
+    assert "raise SystemExit" not in body
+    assert "collama remote script failed" in body
 
 
 def test_install_reuses_existing_session() -> None:

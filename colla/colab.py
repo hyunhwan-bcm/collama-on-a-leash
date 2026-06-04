@@ -97,12 +97,15 @@ class ColabRunner:
 
 def _python_payload(script: str) -> str:
     return (
-        "import pathlib, subprocess, textwrap\n"
+        "import pathlib, subprocess, sys\n"
         "script = r'''\n"
         f"{script}\n"
         "'''\n"
         "path = pathlib.Path('/tmp/collama-on-a-leash.sh')\n"
         "path.write_text(script)\n"
         "path.chmod(0o755)\n"
-        "raise SystemExit(subprocess.call(['bash', str(path)]))\n"
+        "result = subprocess.run(['bash', str(path)], text=True)\n"
+        "if result.returncode:\n"
+        "    print(f'[collama] remote script failed with exit code {result.returncode}', file=sys.stderr)\n"
+        "    raise RuntimeError(f'collama remote script failed with exit code {result.returncode}')\n"
     )
