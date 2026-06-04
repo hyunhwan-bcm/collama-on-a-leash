@@ -15,12 +15,19 @@ def q(value: str | int | None) -> str:
 def install_script(*, ref: str = "master", jobs: int | None = None) -> str:
     jobs_expr = str(jobs) if jobs else "$(nproc)"
     return f"""#!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
+
+step() {{
+  printf '\\n[collama:install] %s\\n' "$*"
+}}
 
 export DEBIAN_FRONTEND=noninteractive
+
+step "Installing build dependencies"
 apt-get update
 apt-get install -y build-essential ca-certificates cmake curl git libcurl4-openssl-dev pkg-config python3 python3-pip python3-venv
 
+step "Checking GPU and CUDA toolchain"
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi
 else
@@ -34,6 +41,7 @@ fi
 
 nvcc --version
 
+step "Preparing llama.cpp source at {LLAMA_DIR}"
 if [ ! -d {q(LLAMA_DIR)}/.git ]; then
   git clone https://github.com/ggml-org/llama.cpp {q(LLAMA_DIR)}
 fi
@@ -41,8 +49,14 @@ fi
 cd {q(LLAMA_DIR)}
 git fetch --depth 1 origin {q(ref)}
 git checkout FETCH_HEAD
+
+step "Configuring llama.cpp CUDA build"
 cmake -S . -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=ON
+
+step "Building llama-server, llama-cli, and llama-bench"
 cmake --build build --config Release -j {jobs_expr} --target llama-server llama-cli llama-bench
+
+step "Installed llama-server version"
 build/bin/llama-server --version || true
 """
 

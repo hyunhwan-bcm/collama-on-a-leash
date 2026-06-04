@@ -36,11 +36,16 @@ class ColabRunner:
 
     def ensure_session(self) -> None:
         if self._status_ok():
+            self._log(f"Using existing Colab session '{self.options.session}'.")
             return
+        self._log(
+            f"Colab session '{self.options.session}' was not found; creating it with GPU {self.options.gpu}."
+        )
         self.create_session()
 
     def create_session(self) -> None:
         self.require_cli()
+        self._log(f"Creating Colab session '{self.options.session}' with GPU {self.options.gpu}.")
         self._run(self.create_session_cmd())
 
     def create_session_cmd(self) -> list[str]:
@@ -57,6 +62,7 @@ class ColabRunner:
         if create:
             self.ensure_session()
         payload = _python_payload(script)
+        self._log(f"Executing remote script in Colab session '{self.options.session}'.")
         self._run(self._base_cmd(["exec", "-s", self.options.session]), input_text=payload)
 
     def _status_ok(self) -> bool:
@@ -93,6 +99,10 @@ class ColabRunner:
     @staticmethod
     def _print_command(cmd: list[str]) -> None:
         print("+ " + " ".join(cmd), file=sys.stderr)
+
+    @staticmethod
+    def _log(message: str) -> None:
+        print(f"[collama] {message}", file=sys.stderr)
 
 
 def _python_payload(script: str) -> str:

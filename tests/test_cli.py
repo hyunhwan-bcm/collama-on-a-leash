@@ -33,6 +33,11 @@ def test_install_creates_gpu_session_and_builds_cuda_llama_cpp() -> None:
     assert calls.items[0][0] == ["colab", "status", "-s", "collama"]
     assert calls.items[1][0] == ["colab", "new", "-s", "collama", "--gpu", "G4"]
     body = payload(calls)
+    assert "set -euxo pipefail" in body
+    assert "[collama:install]" in body
+    assert "Installing build dependencies" in body
+    assert "Checking GPU and CUDA toolchain" in body
+    assert "Building llama-server, llama-cli, and llama-bench" in body
     assert "git clone https://github.com/ggml-org/llama.cpp" in body
     assert "nvidia-cuda-toolkit" not in body
     assert "command -v nvcc" in body
