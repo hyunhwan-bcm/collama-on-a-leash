@@ -119,17 +119,22 @@ class ColabRunner:
         attempts = max(1, self.options.create_retries)
         for attempt in range(1, attempts + 1):
             proc = subprocess.run(cmd, text=True, capture_output=True)
-            _print_completed_process_output(proc)
             if proc.returncode == 0:
+                _print_completed_process_output(proc)
                 return
-            if attempt < attempts and _is_retryable_colab_create_failure(proc):
+            is_retryable = _is_retryable_colab_create_failure(proc)
+            if is_retryable:
+                self._log(f"Colab assignment failed: {_summarize_colab_create_failure(proc)}")
+            else:
+                _print_completed_process_output(proc)
+            if attempt < attempts and is_retryable:
                 self._log(
                     f"Colab session creation failed transiently; retrying in "
                     f"{self.options.create_retry_delay:g}s ({attempt}/{attempts})."
                 )
                 time.sleep(self.options.create_retry_delay)
                 continue
-            if _is_retryable_colab_create_failure(proc):
+            if is_retryable:
                 raise ColabError(
                     f"Colab session creation failed after {attempts} attempts. "
                     "This is a Colab runtime assignment error; retry later or choose another GPU with "
@@ -240,3 +245,12 @@ def _is_retryable_colab_create_failure(proc: subprocess.CompletedProcess[str]) -
         "timeout",
     ]
     return any(marker in output for marker in retryable_markers)
+
+
+def _summarize_colab_create_failure(proc: subprocess.CompletedProcess[str]) -> str:
+    output = f"{proc.stdout}\n{proc.stderr}"
+    for line in reversed(output.splitlines()):
+        stripped = line.strip()
+        if stripped and not stripped.startswith(("│", "╭", "╰", "❱")):
+            return stripped
+    return f"colab new exited with code {proc.returncode}"

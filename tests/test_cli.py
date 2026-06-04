@@ -220,7 +220,7 @@ def test_new_creates_session_without_running_install_script() -> None:
     assert calls.items == [(["colab", "new", "-s", "collama", "--gpu", "G4"], None)]
 
 
-def test_new_retries_transient_colab_assignment_failure() -> None:
+def test_new_retries_transient_colab_assignment_failure(capsys) -> None:
     calls = Calls()
     new_attempts = 0
 
@@ -234,7 +234,13 @@ def test_new_retries_transient_colab_assignment_failure() -> None:
                     cmd,
                     1,
                     stdout="",
-                    stderr="ColabRequestError: Failed to issue request POST assign: Service Unavailable\n",
+                    stderr=(
+                        "[colab] Creating session 'collama'...\n"
+                        "╭──────────────── Traceback ────────────────╮\n"
+                        "│ colab_cli/commands/session.py:157 in new   │\n"
+                        "╰───────────────────────────────────────────╯\n"
+                        "ColabRequestError: Failed to issue request POST assign: Service Unavailable\n"
+                    ),
                 )
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
@@ -246,6 +252,10 @@ def test_new_retries_transient_colab_assignment_failure() -> None:
     ):
         assert cli.main(["--create-retry-delay", "0", "new"]) == 0
 
+    err = capsys.readouterr().err
+    assert "Service Unavailable" in err
+    assert "Traceback" not in err
+    assert "colab_cli/commands/session.py" not in err
     assert new_attempts == 2
     assert calls.items == [
         (["colab", "new", "-s", "collama", "--gpu", "G4"], None),
@@ -275,6 +285,9 @@ def test_new_reports_colab_assignment_failure_after_retries(capsys) -> None:
 
     err = capsys.readouterr().err
     assert "Colab session creation failed after 2 attempts" in err
+    assert "Service Unavailable" in err
+    assert "Traceback" not in err
+    assert "colab_cli/commands/session.py" not in err
     assert "--gpu T4" in err
     assert len(calls.items) == 2
 
