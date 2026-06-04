@@ -165,6 +165,39 @@ def test_colab_cli_timeout_after_remote_success_is_ignored() -> None:
         assert cli.main(["install"]) == 0
 
 
+def test_colab_cli_traceback_after_remote_success_is_suppressed(capsys) -> None:
+    calls = Calls()
+
+    def run(cmd, input=None, text=None, stdout=None, stderr=None, capture_output=None):
+        calls.items.append((list(cmd), input))
+        if cmd[-3:] == ["status", "-s", "collama"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="Name: collama | Hardware: G4 | Status: IDLE\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    def popen(cmd, stdin=None, stdout=None, stderr=None, text=None, bufsize=None):
+        calls.items.append((list(cmd), None))
+        return FakePopen(
+            "[collama:install] Installed llama-server version\n"
+            "[collama] remote script exit code: 0\n"
+            "Traceback (most recent call last):\n"
+            "TimeoutError: Timeout waiting for reply\n",
+            returncode=1,
+            inputs=calls.popen_inputs,
+        )
+
+    with (
+        patch("shutil.which", return_value="/bin/colab"),
+        patch("subprocess.run", run),
+        patch("subprocess.Popen", popen),
+    ):
+        assert cli.main(["install"]) == 0
+
+    output = capsys.readouterr().out
+    assert "[collama] remote script exit code: 0" in output
+    assert "Traceback" not in output
+    assert "TimeoutError" not in output
+
+
 def test_new_creates_session_without_running_install_script() -> None:
     calls = Calls()
     assert run_cli(["new"], calls) == 0

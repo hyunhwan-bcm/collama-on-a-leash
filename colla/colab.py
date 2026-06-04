@@ -129,12 +129,15 @@ class ColabRunner:
         proc.stdin.write(payload)
         proc.stdin.close()
 
+        suppress_after_success = False
         for line in proc.stdout:
-            print(line, end="")
+            if not suppress_after_success:
+                print(line, end="")
             if marker in line:
                 value = line.rsplit(marker, 1)[1].strip()
                 if value.isdigit():
                     remote_exit_code = int(value)
+                    suppress_after_success = remote_exit_code == 0
 
         local_returncode = proc.wait()
         if remote_exit_code is not None:
