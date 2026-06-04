@@ -1,0 +1,256 @@
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+
+
+REMOTE_EXIT_CODE_PATH = "/tmp/collama-on-a-leash.exit"
+
+
+@dataclass(frozen=True)
+class ColabOptions:
+    session: str
+    gpu: str | None = "G4"
+    auth: str | None = None
+    config: str | None = None
+    colab_bin: str = "colab"
+    create_retries: int = 3
+    create_retry_delay: float = 10.0
+
+
+class ColabError(RuntimeError):
+    pass
+
+
+class ColabRunner:
+    def __init__(self, options: ColabOptions, *, dry_run: bool = False) -> None:
+        self.options = options
+        self.dry_run = dry_run
+
+    def require_cli(self) -> None:
+        if self.dry_run:
+            return
+        if shutil.which(self.options.colab_bin) is None:
+            raise ColabError(
+                "google-colab-cli is required. Install it with "
+                "`uv tool install -U google-colab-cli` or "
+                "`pip install -U google-colab-cli`."
+            )
+
+    def ensure_session(self) -> None:
+        if self._status_ok():
+            self._log(f"Using existing Colab session '{self.options.session}'.")
+            return
+        self._log(
+            f"Colab session '{self.options.session}' was not found; creating it with GPU {self.options.gpu}."
+        )
+        self.create_session()
+
+    def create_session(self) -> None:
+        self.require_cli()
+        self._log(f"Creating Colab session '{self.options.session}' with GPU {self.options.gpu}.")
+        self._run_create_session(self.create_session_cmd())
+
+    def create_session_cmd(self) -> list[str]:
+        cmd = self._base_cmd(["new", "-s", self.options.session])
+        if self.options.gpu:
+            cmd.extend(["--gpu", self.options.gpu])
+        return cmd
+
+    def stop_session(self) -> None:
+        self._run(self._base_cmd(["stop", "-s", self.options.session]))
+
+    def run_bash(self, script: str, *, create: bool = True) -> None:
+        self.require_cli()
+        if create:
+            self.ensure_session()
+        payload = _python_payload(script)
+        self._log(f"Executing remote script in Colab session '{self.options.session}'.")
+        exit_code = self._run_exec_payload(self._base_cmd(["exec", "-s", self.options.session]), payload)
+        if exit_code != 0:
+            raise ColabError(f"Remote script failed with exit code {exit_code}.")
+
+    def _status_ok(self) -> bool:
+        self.require_cli()
+        cmd = self._base_cmd(["status", "-s", self.options.session])
+        if self.dry_run:
+            self._print_command(cmd)
+            return False
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        if proc.returncode != 0:
+            return False
+        output = f"{proc.stdout}\n{proc.stderr}".lower()
+        return "not found" not in output and "no active sessions" not in output
+
+    def _base_cmd(self, args: list[str]) -> list[str]:
+        cmd = [self.options.colab_bin]
+        if self.options.auth:
+            cmd.extend(["--auth", self.options.auth])
+        if self.options.config:
+            cmd.extend(["--config", self.options.config])
+        cmd.extend(args)
+        return cmd
+
+    def _run(
+        self,
+        cmd: list[str],
+        *,
+        input_text: str | None = None,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str] | None:
+        if self.dry_run:
+            self._print_command(cmd)
+            if input_text:
+                print(input_text)
+            return
+        proc = subprocess.run(cmd, input=input_text, text=True, capture_output=capture_output)
+        if proc.returncode != 0:
+            raise ColabError(f"Command failed with exit code {proc.returncode}: {' '.join(cmd)}")
+        return proc
+
+    def _run_create_session(self, cmd: list[str]) -> None:
+        if self.dry_run:
+            self._print_command(cmd)
+            return
+
+        attempts = max(1, self.options.create_retries)
+        for attempt in range(1, attempts + 1):
+            proc = subprocess.run(cmd, text=True, capture_output=True)
+            if proc.returncode == 0:
+                _print_completed_process_output(proc)
+                return
+            is_retryable = _is_retryable_colab_create_failure(proc)
+            if is_retryable:
+                self._log(f"Colab assignment failed: {_summarize_colab_create_failure(proc)}")
+            else:
+                _print_completed_process_output(proc)
+            if attempt < attempts and is_retryable:
+                self._log(
+                    f"Colab session creation failed transiently; retrying in "
+                    f"{self.options.create_retry_delay:g}s ({attempt}/{attempts})."
+                )
+                time.sleep(self.options.create_retry_delay)
+                continue
+            if is_retryable:
+                raise ColabError(
+                    f"Colab session creation failed after {attempts} attempts. "
+                    "This is a Colab runtime assignment error; retry later or choose another GPU with "
+                    "`--gpu T4`, `--gpu L4`, `--gpu A100`, or `--gpu H100`."
+                )
+            raise ColabError(f"Command failed with exit code {proc.returncode}: {' '.join(cmd)}")
+
+    def _run_exec_payload(self, cmd: list[str], payload: str) -> int:
+        if self.dry_run:
+            self._print_command(cmd)
+            print(payload)
+            return 0
+
+        marker = "[collama] remote script exit code:"
+        remote_exit_code: int | None = None
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        assert proc.stdin is not None
+        assert proc.stdout is not None
+        proc.stdin.write(payload)
+        proc.stdin.close()
+
+        suppress_after_success = False
+        for line in proc.stdout:
+            if not suppress_after_success:
+                print(line, end="")
+            if marker in line:
+                value = line.rsplit(marker, 1)[1].strip()
+                if value.isdigit():
+                    remote_exit_code = int(value)
+                    suppress_after_success = remote_exit_code == 0
+                    if suppress_after_success:
+                        proc.terminate()
+                        break
+
+        local_returncode = _wait_for_process(proc)
+        if remote_exit_code is not None:
+            return remote_exit_code
+        if local_returncode != 0:
+            raise ColabError(f"Command failed with exit code {local_returncode}: {' '.join(cmd)}")
+        raise ColabError("Remote script exit code was not found in Colab output.")
+
+    @staticmethod
+    def _print_command(cmd: list[str]) -> None:
+        print("+ " + " ".join(cmd), file=sys.stderr)
+
+    @staticmethod
+    def _log(message: str) -> None:
+        print(f"[collama] {message}", file=sys.stderr)
+
+
+def _python_payload(script: str) -> str:
+    return (
+        "import pathlib, subprocess, sys\n"
+        "script = r'''\n"
+        f"{script}\n"
+        "'''\n"
+        "path = pathlib.Path('/tmp/collama-on-a-leash.sh')\n"
+        f"exit_path = pathlib.Path({REMOTE_EXIT_CODE_PATH!r})\n"
+        "exit_path.write_text('127')\n"
+        "path.write_text(script)\n"
+        "path.chmod(0o755)\n"
+        "proc = subprocess.Popen(\n"
+        "    ['bash', str(path)],\n"
+        "    stdout=subprocess.PIPE,\n"
+        "    stderr=subprocess.STDOUT,\n"
+        "    text=True,\n"
+        "    bufsize=1,\n"
+        ")\n"
+        "assert proc.stdout is not None\n"
+        "for line in proc.stdout:\n"
+        "    print(line, end='', flush=True)\n"
+        "exit_code = proc.wait()\n"
+        "exit_path.write_text(str(exit_code))\n"
+        "print(f'[collama] remote script exit code: {exit_code}', flush=True)\n"
+        "sys.stdout.flush()\n"
+    )
+
+
+def _wait_for_process(proc: subprocess.Popen[str]) -> int:
+    try:
+        return proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return proc.wait()
+
+
+def _print_completed_process_output(proc: subprocess.CompletedProcess[str]) -> None:
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+
+
+def _is_retryable_colab_create_failure(proc: subprocess.CompletedProcess[str]) -> bool:
+    output = f"{proc.stdout}\n{proc.stderr}".lower()
+    retryable_markers = [
+        "service unavailable",
+        "failed to issue request",
+        "colabrequesterror",
+        "temporarily unavailable",
+        "timeout",
+    ]
+    return any(marker in output for marker in retryable_markers)
+
+
+def _summarize_colab_create_failure(proc: subprocess.CompletedProcess[str]) -> str:
+    output = f"{proc.stdout}\n{proc.stderr}"
+    for line in reversed(output.splitlines()):
+        stripped = line.strip()
+        if stripped and not stripped.startswith(("│", "╭", "╰", "❱")):
+            return stripped
+    return f"colab new exited with code {proc.returncode}"
