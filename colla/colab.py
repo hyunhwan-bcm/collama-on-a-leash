@@ -37,10 +37,17 @@ class ColabRunner:
     def ensure_session(self) -> None:
         if self._status_ok():
             return
+        self.create_session()
+
+    def create_session(self) -> None:
+        self.require_cli()
+        self._run(self.create_session_cmd())
+
+    def create_session_cmd(self) -> list[str]:
         cmd = self._base_cmd(["new", "-s", self.options.session])
         if self.options.gpu:
             cmd.extend(["--gpu", self.options.gpu])
-        self._run(cmd)
+        return cmd
 
     def stop_session(self) -> None:
         self._run(self._base_cmd(["stop", "-s", self.options.session]))
@@ -58,8 +65,11 @@ class ColabRunner:
         if self.dry_run:
             self._print_command(cmd)
             return False
-        proc = subprocess.run(cmd, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return proc.returncode == 0
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        if proc.returncode != 0:
+            return False
+        output = f"{proc.stdout}\n{proc.stderr}".lower()
+        return "not found" not in output and "no active sessions" not in output
 
     def _base_cmd(self, args: list[str]) -> list[str]:
         cmd = [self.options.colab_bin]

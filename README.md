@@ -34,6 +34,17 @@ All remote commands use a Colab session named `collama` by default. Override it
 with `-s NAME`. New sessions request a G4 GPU by default; use `--gpu T4`,
 `--gpu L4`, `--gpu A100`, or `--gpu H100` when creating a session.
 
+### `new`
+
+Create the Colab session without installing anything:
+
+```bash
+collama new
+```
+
+This is optional. `install`, `tailscale`, `serve`, and `benchy` create the
+session automatically when it is missing.
+
 ### `install`
 
 Build `llama.cpp` from source with CUDA enabled:
@@ -41,6 +52,8 @@ Build `llama.cpp` from source with CUDA enabled:
 ```bash
 collama install
 ```
+
+If the `collama` Colab session does not exist yet, `install` creates it first.
 
 The remote build performs:
 

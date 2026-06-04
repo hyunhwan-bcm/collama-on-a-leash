@@ -10,10 +10,10 @@ class Calls:
     def __init__(self) -> None:
         self.items: list[tuple[list[str], str | None]] = []
 
-    def run(self, cmd, input=None, text=None, stdout=None, stderr=None):
+    def run(self, cmd, input=None, text=None, stdout=None, stderr=None, capture_output=None):
         self.items.append((list(cmd), input))
         if cmd[-3:] == ["status", "-s", "collama"]:
-            return subprocess.CompletedProcess(cmd, 1)
+            return subprocess.CompletedProcess(cmd, 0, stdout="[colab] Session 'collama' not found.\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0)
 
 
@@ -36,6 +36,28 @@ def test_install_creates_gpu_session_and_builds_cuda_llama_cpp() -> None:
     assert "git clone https://github.com/ggml-org/llama.cpp" in body
     assert "-DGGML_CUDA=ON" in body
     assert "--target llama-server llama-cli llama-bench" in body
+
+
+def test_install_reuses_existing_session() -> None:
+    calls = Calls()
+
+    def run(cmd, input=None, text=None, capture_output=None):
+        calls.items.append((list(cmd), input))
+        if cmd[-3:] == ["status", "-s", "collama"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="Name: collama | Hardware: G4 | Status: IDLE\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    with patch("shutil.which", return_value="/bin/colab"), patch("subprocess.run", run):
+        assert cli.main(["install"]) == 0
+
+    assert calls.items[0][0] == ["colab", "status", "-s", "collama"]
+    assert calls.items[1][0] == ["colab", "exec", "-s", "collama"]
+
+
+def test_new_creates_session_without_running_install_script() -> None:
+    calls = Calls()
+    assert run_cli(["new"], calls) == 0
+    assert calls.items == [(["colab", "new", "-s", "collama", "--gpu", "G4"], None)]
 
 
 def test_tailscale_uses_authkey_hostname_and_starts_daemon() -> None:

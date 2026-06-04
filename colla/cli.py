@@ -25,6 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True)
 
+    sub.add_parser("new", help="Create a Colab session and then exit.")
+
     install = sub.add_parser("install", help="Build llama.cpp with CUDA on the Colab runtime.")
     install.add_argument("--ref", default="master", help="llama.cpp git ref to build.")
     install.add_argument("--jobs", type=int, help="Parallel build jobs; default is nproc on Colab.")
@@ -91,7 +93,9 @@ def _dispatch(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
     )
 
-    if args.command == "install":
+    if args.command == "new":
+        runner.create_session()
+    elif args.command == "install":
         runner.run_bash(install_script(ref=args.ref, jobs=args.jobs))
     elif args.command == "tailscale":
         runner.run_bash(
