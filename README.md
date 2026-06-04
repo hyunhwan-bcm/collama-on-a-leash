@@ -77,10 +77,18 @@ Install/start `tailscaled` on the Colab runtime and join your Tailnet:
 TAILSCALE_AUTHKEY=tskey-auth-... collama tailscale
 ```
 
-Without `TAILSCALE_AUTHKEY`, the command installs Tailscale and prints the
-manual `tailscale up` command to run inside Colab. A remote Colab VM needs an
-auth key or an interactive login step; local machine status is not enough to
-authenticate the remote machine.
+Or using the CLI flag:
+
+```bash
+collama tailscale --authkey tskey-auth-...
+```
+
+An auth key is required. Generate one at:
+https://login.tailscale.com/admin/settings/keys
+
+Without an auth key, the command fails with a clear error message. A remote
+Colab VM needs an auth key; local machine status is not enough to authenticate
+the remote machine.
 
 Options:
 
