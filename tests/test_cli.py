@@ -301,12 +301,24 @@ def test_tailscale_uses_authkey_hostname_and_starts_daemon() -> None:
     assert "tailscaled --tun=userspace-networking" in body
 
 
-def test_tailscale_without_authkey_prints_manual_command() -> None:
+def test_tailscale_without_authkey_fails_with_clear_error() -> None:
     calls = Calls()
-    assert run_cli(["tailscale", "--hostname", "manual-node"], calls) == 0
+
+    def popen(cmd, stdin=None, stdout=None, stderr=None, text=None, bufsize=None):
+        calls.items.append((list(cmd), None))
+        return FakePopen("[collama] remote script exit code: 1\n", returncode=0, inputs=calls.popen_inputs)
+
+    with (
+        patch("shutil.which", return_value="/bin/colab"),
+        patch("subprocess.run", calls.run),
+        patch("subprocess.Popen", popen),
+    ):
+        assert cli.main(["tailscale", "--hostname", "manual-node"]) == 1
+
     body = remote_script_payload(calls)
     assert "TAILSCALE_AUTHKEY was not provided" in body
-    assert "tailscale up --hostname manual-node" in body
+    assert "Generate an auth key at" in body
+    assert "exit 1" in body
 
 
 def test_healthcheck_prints_json() -> None:

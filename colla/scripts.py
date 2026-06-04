@@ -68,20 +68,24 @@ def tailscale_script(
     login_server: str | None = None,
     advertise_tags: str | None = None,
 ) -> str:
+    if not authkey:
+        return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+echo 'error: TAILSCALE_AUTHKEY was not provided.' >&2
+echo 'Generate an auth key at https://login.tailscale.com/admin/settings/keys' >&2
+echo 'Then run: TAILSCALE_AUTHKEY=tskey-auth-... collama tailscale' >&2
+echo 'Or use: collama tailscale --authkey tskey-auth-...' >&2
+exit 1
+"""
+
     up_args = ["--hostname", hostname]
-    if authkey:
-        up_args.extend(["--authkey", authkey])
+    up_args.extend(["--authkey", authkey])
     if login_server:
         up_args.extend(["--login-server", login_server])
     if advertise_tags:
         up_args.extend(["--advertise-tags", advertise_tags])
     up_line = "tailscale up " + " ".join(q(arg) for arg in up_args)
-    auth_note = (
-        up_line
-        if authkey
-        else "echo 'TAILSCALE_AUTHKEY was not provided. Run this in Colab after authenticating:' && echo "
-        + q(up_line)
-    )
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -101,9 +105,9 @@ else
   fi
 fi
 
-{auth_note}
-tailscale status || true
-tailscale ip -4 || true
+{up_line}
+tailscale status
+tailscale ip -4
 """
 
 
