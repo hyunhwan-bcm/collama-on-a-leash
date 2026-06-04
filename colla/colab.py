@@ -143,7 +143,7 @@ class ColabRunner:
 
 def _python_payload(script: str) -> str:
     return (
-        "import pathlib, subprocess\n"
+        "import pathlib, subprocess, sys\n"
         "script = r'''\n"
         f"{script}\n"
         "'''\n"
@@ -152,7 +152,18 @@ def _python_payload(script: str) -> str:
         "exit_path.write_text('127')\n"
         "path.write_text(script)\n"
         "path.chmod(0o755)\n"
-        "result = subprocess.run(['bash', str(path)], text=True)\n"
-        "exit_path.write_text(str(result.returncode))\n"
-        "print(f'[collama] remote script exit code: {result.returncode}')\n"
+        "proc = subprocess.Popen(\n"
+        "    ['bash', str(path)],\n"
+        "    stdout=subprocess.PIPE,\n"
+        "    stderr=subprocess.STDOUT,\n"
+        "    text=True,\n"
+        "    bufsize=1,\n"
+        ")\n"
+        "assert proc.stdout is not None\n"
+        "for line in proc.stdout:\n"
+        "    print(line, end='', flush=True)\n"
+        "exit_code = proc.wait()\n"
+        "exit_path.write_text(str(exit_code))\n"
+        "print(f'[collama] remote script exit code: {exit_code}', flush=True)\n"
+        "sys.stdout.flush()\n"
     )

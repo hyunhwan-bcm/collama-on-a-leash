@@ -54,6 +54,9 @@ def test_install_creates_gpu_session_and_builds_cuda_llama_cpp() -> None:
     assert "--target llama-server llama-cli llama-bench" in body
     assert "raise SystemExit" not in body
     assert "raise RuntimeError" not in body
+    assert "subprocess.Popen" in body
+    assert "stderr=subprocess.STDOUT" in body
+    assert "flush=True" in body
     assert "__COLLAMA_REMOTE_EXIT_CODE__" in payload(calls)
 
 
